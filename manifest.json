@@ -2,7 +2,7 @@
     "name": "twopointoh",
     "short_name": "twopointoh",
     "description": "Edite modelos 3D e calcule materiais de forma offline e rápida.",
-    "start_url": "/twopointoh.html",
+    "start_url": "/index.html",
     "display": "standalone",
     "background_color": "#03001C",
     "theme_color": "#00ffff",
