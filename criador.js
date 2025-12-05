@@ -41,7 +41,7 @@ const LOGIN_STYLES = `
         transition: opacity 0.5s;
         
         /* APLICANDO A IMAGEM DE FUNDO A ESTE NOVO MODAL */
-        background-image: url(fundo.jpg);
+        background-image: url(/fundo.jpg);
         background-size: cover;
         background-position: center;
         background-attachment: fixed;
