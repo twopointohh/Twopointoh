@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <link rel="manifest" href="manifest.json">
+    <title>Editor de Modelos 3D e Calculadora de Material</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/ColladaLoader.js"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; }
+        canvas { display: block; }
+        .modal {
+            display: none; /* Oculto por padrão */
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.7);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+            position: relative;
+        }
+        .close-btn {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            cursor: pointer;
+        }
+        .close-btn:hover, .close-btn:focus {
+            color: #333;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="three-container" class="absolute inset-0 z-0"></div>
+
+    <div id="control-panel-toggle" class="fixed top-4 right-4 z-40 space-y-3">
+        <button id="btn-toggle-ui" onclick="toggleControlInterfaces()" class="w-full px-3 py-1 bg-gray-400 text-white font-semibold rounded-lg hover:bg-gray-500 transition duration-200">
+            <i class="fas fa-eye-slash"></i> Ocultar Controles
+        </button>
+        <p class="text-xs text-center text-gray-500 pt-1" id="gizmo-hint" style="display: none;">Gizmo: **W** (Mover), **E** (Rodar), **R** (Escala)</p>
+    </div>
+    
+    <div id="control-panel-right" class="fixed top-20 right-4 p-4 bg-white rounded-xl shadow-2xl z-20 space-y-3">
+        <h2 class="text-xl font-bold text-gray-800 border-b pb-2 mb-2">Controles 3D</h2>
+        
+        <div>
+            <label for="brightness-slider" class="block text-sm font-medium text-gray-700">Luminosidade: <span id="brightness-value">1.0</span></label>
+            <input type="range" id="brightness-slider" min="0.1" max="5.0" step="0.1" value="1.0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" onchange="updateLightBrightness(this.value)">
+        </div>
+
+        <div>
+            <label for="shadow-quality-slider" class="block text-sm font-medium text-gray-700">Qualidade da Sombra: <span id="shadow-quality-label">Média (1024)</span></label>
+            <input type="range" id="shadow-quality-slider" min="1" max="4" step="1" value="2" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" onchange="updateShadowQuality(this.value)">
+        </div>
+        
+        <div>
+            <label for="reflection-slider" class="block text-sm font-medium text-gray-700">Reflexo do Material: <span id="reflection-value">0.5</span></label>
+            <input type="range" id="reflection-slider" min="0.0" max="1.0" step="0.05" value="0.5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" onchange="updateMaterialReflection(this.value)">
+        </div>
+        
+        <button id="btn-unit-toggle" onclick="toggleUnitSystem()" class="w-full px-3 py-1 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition duration-200">
+            Unidade: M
+        </button>
+        
+    </div>
+
+    <div id="control-panel-left" class="fixed top-4 left-4 p-4 bg-white rounded-xl shadow-2xl z-20 max-w-xs space-y-2">
+        <h2 class="text-xl font-bold text-gray-800 border-b pb-2 mb-2">Modelos Carregados</h2>
+        <ul id="models-list" class="space-y-1 text-sm max-h-40 overflow-y-auto">
+            <li class="text-gray-500">Nenhum modelo.</li>
+        </ul>
+    </div>
+
+    <div class="control-panel-bottom fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 shadow-xl z-30">
+        <div class="flex space-x-2">
+            
+            <input type="file" id="file-input" multiple class="hidden" onchange="handleFileSelect(event)">
+            <button onclick="document.getElementById('file-input').click()" class="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition duration-200">
+                <i class="fas fa-upload"></i> Carregar Modelos
+            </button>
+            
+            <button onclick="clearScene()" class="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg shadow-md hover:bg-red-700 transition duration-200">
+                <i class="fas fa-trash"></i> Limpar Cena
+            </button>
+            
+            <button onclick="toggleXRayMode()" id="btn-xray-toggle" class="flex-1 px-4 py-2 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 transition duration-200">
+                <i class="fas fa-eye"></i> Raio-X
+            </button>
+            
+            <button onclick="showCreatorModal()" id="btn-calculate" class="flex-1 px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-200">
+                <i class="fas fa-calculator"></i> Cálculo de Matérias
+            </button>
+        </div>
+    </div>
+
+
+    <div id="creator-modal" class="modal">
+        <div class="modal-content w-full sm:w-1/2 lg:w-1/3">
+            <span class="close-btn" onclick="hideCreatorModal()">&times;</span>
+            <h3 class="text-2xl font-bold mb-4 text-gray-800">Configuração de Materiais</h3>
+            
+            <p class="mb-4 text-sm text-gray-600">
+                Defina o tipo de material para cada peça do modelo. Isso afeta como o cálculo de materiais será realizado (Área, Volume ou Comprimento Linear).
+            </p>
+
+            <div class="h-64 overflow-y-auto border border-gray-300 rounded-lg p-3 bg-gray-50">
+                <ul id="parts-ul" class="space-y-2">
+                    <li class="text-gray-500 text-center py-4">Nenhum modelo selecionado.</li>
+                </ul>
+            </div>
+
+            <button onclick="window.calculateAllMaterials(loadedModels, MATERIAL_TYPES)" id="btn-confirm-calculation" class="w-full mt-4 px-4 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition duration-200">
+                Confirmar Materiais e Calcular
+            </button>
+            
+        </div>
+    </div>
+    
+    <div id="results-modal" class="modal">
+        <div class="modal-content w-full sm:w-1/2 lg:w-1/3">
+            <span class="close-btn" onclick="hideResultsModal()">&times;</span>
+            <h3 class="text-2xl font-bold mb-4 text-gray-800">Resultado do Cálculo de Material</h3>
+            
+            <p class="mb-4 text-sm text-gray-600">
+                Aqui estão os totais agregados de materiais baseados na sua configuração.
+            </p>
+
+            <div class="border border-indigo-300 rounded-lg p-4 bg-indigo-50">
+                <ul id="calculation-results-ul" class="space-y-2">
+                    <li class="text-gray-600 text-center py-2">Calculando...</li>
+                </ul>
+            </div>
+            
+            <button onclick="hideResultsModal()" class="w-full mt-4 px-4 py-2 bg-indigo-500 text-white font-bold rounded-lg hover:bg-indigo-600 transition duration-200">
+                Fechar
+            </button>
+            
+        </div>
+    </div>
+    
+    <script>
+        // --- Variáveis Globais ---
+        let scene, camera, renderer, controls, transformControls;
+        let ambientLight, directionalLight;
+        let loadedModels = []; // Array para armazenar todos os modelos carregados (THREE.Group)
+        let currentUnit = 'm'; // 'm', 'cm', 'mm'
+        
+        // Definição dos Tipos de Material para o sistema de cálculo
+        const MATERIAL_TYPES = {
+            CHAPA: 'CHAPA (m²)',
+            VOLUME: 'VOLUME (m³)',
+            LINEAR: 'LINEAR (m)',
+            UNITARIO: 'UNITARIO (un)'
+        };
+        const DEFAULT_MATERIAL_TYPE = MATERIAL_TYPES.CHAPA;
+        
+        // Variável de estado para a UI
+        let areControlsVisible = true;
+        let isXRayMode = false; 
+
+        // --- Funções de Utilidade e Inicialização ---
+        
+        function init() {
+            // 1. Cena
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xeeeeee);
+
+            // 2. Câmera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(2, 2, 2);
+
+            // 3. Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('three-container').appendChild(renderer.domElement);
+
+            // 4. Luzes
+            ambientLight = new THREE.AmbientLight(0x404040, 0.5); // Luz ambiente
+            scene.add(ambientLight);
+
+            directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight.position.set(5, 10, 7.5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048; 
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -10;
+            directionalLight.shadow.camera.right = 10;
+            directionalLight.shadow.camera.top = 10;
+            directionalLight.shadow.camera.bottom = -10;
+            scene.add(directionalLight);
+            
+            // Plano de Chão
+            const planeGeometry = new THREE.PlaneGeometry(20, 20);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, side: THREE.DoubleSide });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = Math.PI / 2;
+            plane.position.y = 0;
+            plane.receiveShadow = true;
+            plane.name = 'Chao'; // Define um nome para ignorar no Raycasting
+            scene.add(plane);
+
+            // 5. Controles
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            // TransformControls (Gizmo)
+            transformControls = new THREE.TransformControls(camera, renderer.domElement);
+            scene.add(transformControls);
+
+            // Adiciona a lógica para desativar OrbitControls ao arrastar o Gizmo
+            transformControls.addEventListener('dragging-changed', function (event) {
+                controls.enabled = !event.value;
+            });
+            
+            // 6. Loop de Animação
+            animate();
+            
+            // 7. Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', onKeyDown);
+            // O listener de clique foi movido para o xray.js para centralizar a lógica de seleção
+            
+            // Adiciona um listener para o TransformControls para atualizar as propriedades do modelo após a transformação
+            transformControls.addEventListener('objectChange', function (event) {
+                // updateModelsList(); 
+            });
+
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        function onKeyDown(event) {
+            // Desanexa o TransformControls ao pressionar a tecla 'Escape'
+            if (event.key === 'Escape') {
+                transformControls.detach();
+            }
+            
+            // Alterna os modos de transformação com W, E, R
+            switch (event.key.toUpperCase()) {
+                case 'W': // Translate
+                    transformControls.setMode('translate');
+                    break;
+                case 'E': // Rotate
+                    transformControls.setMode('rotate');
+                    break;
+                case 'R': // Scale
+                    transformControls.setMode('scale');
+                    break;
+            }
+        }
+        
+        // --- Funções de Lógica de Cena e Controles ---
+        
+        /**
+         * CORRIGIDO: Alterna a visibilidade dos painéis de controle. O botão agora está fora dos painéis ocultáveis.
+         */
+        function toggleControlInterfaces() {
+            const panelRight = document.getElementById('control-panel-right');
+            const panelLeft = document.getElementById('control-panel-left');
+            const panelBottom = document.querySelector('.control-panel-bottom'); 
+            const toggleButton = document.getElementById('btn-toggle-ui'); 
+            const gizmoHint = document.getElementById('gizmo-hint');
+
+            areControlsVisible = !areControlsVisible;
+
+            if (areControlsVisible) {
+                // MOSTRAR
+                panelRight.style.display = 'block';
+                panelLeft.style.display = 'block';
+                panelBottom.style.display = 'block';
+                gizmoHint.style.display = 'none'; // A dica fica visível apenas quando os controles estão ocultos
+                toggleButton.innerHTML = '<i class="fas fa-eye-slash"></i> Ocultar Controles';
+            } else {
+                // OCULTAR
+                panelRight.style.display = 'none';
+                panelLeft.style.display = 'none';
+                panelBottom.style.display = 'none';
+                gizmoHint.style.display = 'block'; // Mostra a dica do Gizmo
+                toggleButton.innerHTML = '<i class="fas fa-eye"></i> Mostrar Controles';
+            }
+        }
+        
+        function updateLightBrightness(value) {
+            const brightness = parseFloat(value);
+            directionalLight.intensity = brightness;
+            document.getElementById('brightness-value').innerText = brightness.toFixed(2);
+        }
+
+        function updateShadowQuality(value) {
+            const qualityMap = {
+                '1': { size: 512, label: 'Baixa (512)' },
+                '2': { size: 1024, label: 'Média (1024)' },
+                '3': { size: 2048, label: 'Alta (2048)' },
+                '4': { size: 4096, label: 'Ultra (4096)' }
+            };
+            
+            const setting = qualityMap[value];
+            if (setting) {
+                directionalLight.shadow.mapSize.width = setting.size;
+                directionalLight.shadow.mapSize.height = setting.size;
+                directionalLight.shadow.map.dispose();
+                directionalLight.shadow.map = null; 
+                document.getElementById('shadow-quality-label').innerText = setting.label;
+                directionalLight.shadow.needsUpdate = true;
+            }
+        }
+        
+        function updateMaterialReflection(value) {
+             const reflection = parseFloat(value);
+             document.getElementById('reflection-value').innerText = reflection.toFixed(2);
+             
+             scene.traverse(obj => {
+                 if (obj.isMesh && obj.material && obj.material.isMeshStandardMaterial) {
+                     if (Array.isArray(obj.material)) {
+                         obj.material.forEach(material => {
+                             material.metalness = reflection;
+                             material.roughness = 1.0 - reflection; 
+                             material.needsUpdate = true;
+                         });
+                     } else { 
+                         obj.material.metalness = reflection;
+                         obj.material.roughness = 1.0 - reflection; 
+                         obj.material.needsUpdate = true;
+                     }
+                 }
+             });
+        }
+        
+        function clearScene() {
+            transformControls.detach();
+            
+            loadedModels.forEach(model => {
+                scene.remove(model);
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) {
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(material => material.dispose());
+                            } else {
+                                child.material.dispose();
+                            }
+                        }
+                    }
+                });
+            });
+            
+            loadedModels = []; 
+            updateModelsList();
+            
+            camera.position.set(2, 2, 2);
+            controls.target.set(0, 0, 0);
+            controls.update();
+            console.log("Cena limpa e recursos liberados.");
+        }
+        
+        function toggleUnitSystem() {
+            if (currentUnit === 'm') {
+                currentUnit = 'cm';
+            } else if (currentUnit === 'cm') {
+                currentUnit = 'mm';
+            } else {
+                currentUnit = 'm';
+            }
+            
+            const unitBtn = document.getElementById('btn-unit-toggle');
+            if(unitBtn) {
+                 unitBtn.innerText = `Unidade: ${currentUnit.toUpperCase()}`;
+            }
+            
+            console.log(`Unidade de trabalho alterada para: ${currentUnit}`);
+        }
+        
+        /**
+         * ALTERADO: Alterna o modo Raio-X global, chamando a função em xray.js. 
+         * A lógica de manipulação do botão e de limpeza de seleção foi mantida aqui.
+         */
+        function toggleXRayMode() {
+            isXRayMode = !isXRayMode;
+            const xrayBtn = document.getElementById('btn-xray-toggle');
+
+            if (window.toggleXRay) {
+                // Chama a função principal do xray.js
+                window.toggleXRay(loadedModels, isXRayMode); 
+            } else {
+                console.warn("xray.js ou a função toggleXRay não foi carregada corretamente.");
+            }
+            
+            // Atualiza a aparência do botão
+            if (xrayBtn) {
+                 if (isXRayMode) {
+                    xrayBtn.innerHTML = '<i class="fas fa-eye-slash"></i> Raio-X: ON';
+                    xrayBtn.classList.remove('bg-teal-600', 'hover:bg-teal-700');
+                    xrayBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
+                 } else {
+                    xrayBtn.innerHTML = '<i class="fas fa-eye"></i> Raio-X';
+                    xrayBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
+                    xrayBtn.classList.add('bg-teal-600', 'hover:bg-teal-700');
+                 }
+            }
+            
+            // Ao alternar o modo Raio-X global, limpa qualquer seleção individual e desanexa o Gizmo
+            if (window.selectMeshForXRay) {
+                 window.selectMeshForXRay(null);
+            }
+            transformControls.detach(); 
+            
+            console.log(`Modo Raio-X: ${isXRayMode ? 'ATIVADO' : 'DESATIVADO'}`);
+        }
+        
+        // --- Funções de Carregamento de Arquivos ---
+        
+        function handleFileSelect(event) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+
+            Array.from(files).forEach(file => {
+                loadModel(file);
+            });
+        }
+        
+        function loadModel(file) {
+            const reader = new FileReader();
+            
+            reader.onload = (event) => {
+                try {
+                    const extension = file.name.split('.').pop().toLowerCase();
+                    let model;
+                    
+                    if (extension === 'gltf' || extension === 'glb') {
+                        const loader = new THREE.GLTFLoader();
+                        loader.parse(event.target.result, '', (gltf) => {
+                            model = gltf.scene;
+                            finalizeModelLoad(model, file.name);
+                        });
+                    } else if (extension === 'obj') {
+                        const loader = new THREE.OBJLoader();
+                        model = loader.parse(event.target.result);
+                        finalizeModelLoad(model, file.name);
+                    } else if (extension === 'stl') {
+                        const loader = new THREE.STLLoader();
+                        const geometry = loader.parse(event.target.result);
+                        const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.5, roughness: 0.5 });
+                        model = new THREE.Mesh(geometry, material);
+                        finalizeModelLoad(model, file.name);
+                    } else if (extension === 'dae') {
+                         const loader = new THREE.ColladaLoader();
+                         loader.parse(event.target.result, (collada) => {
+                             model = collada.scene;
+                             finalizeModelLoad(model, file.name);
+                         });
+                    } else {
+                        console.error(`Formato de arquivo não suportado: ${extension}`);
+                    }
+                } catch (error) {
+                    console.error('Erro ao carregar ou processar o modelo:', error);
+                }
+            };
+
+            if (file.name.match(/\.(gltf|glb|dae)$/i)) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsText(file);
+            }
+        }
+        
+        function finalizeModelLoad(model, fileName) {
+            model.name = fileName;
+            model.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    child.name = child.name || `Peça_${fileName}_${child.uuid.substring(0, 4)}`;
+                    
+                    if (!child.material) {
+                         child.material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.5, roughness: 0.5 });
+                    }
+                }
+            });
+            
+            const bbox = new THREE.Box3().setFromObject(model);
+            const center = new THREE.Vector3();
+            bbox.getCenter(center);
+            model.position.sub(center); 
+
+            if (window.performMeshScanAndSetData) {
+                window.performMeshScanAndSetData(model, currentUnit, MATERIAL_TYPES, DEFAULT_MATERIAL_TYPE);
+            } else {
+                console.warn("scanner.js não foi carregado corretamente. Funções de cálculo indisponíveis.");
+            }
+            
+            scene.add(model);
+            loadedModels.push(model);
+            
+            updateModelsList();
+            console.log(`Modelo carregado: ${fileName}`);
+        }
+        
+        function updateModelsList() {
+            const list = document.getElementById('models-list');
+            list.innerHTML = '';
+            
+            if (loadedModels.length === 0) {
+                list.innerHTML = '<li class="text-gray-500">Nenhum modelo.</li>';
+                return;
+            }
+
+            loadedModels.forEach(model => {
+                const li = document.createElement('li');
+                li.className = 'flex justify-between items-center px-2 py-1 bg-gray-100 rounded-md hover:bg-gray-200 cursor-pointer text-sm';
+                li.innerHTML = `
+                    <span class="truncate" title="${model.name}">${model.name}</span>
+                    <button class="text-indigo-500 hover:text-indigo-700 ml-2 p-1" onclick="attachTransformControls('${model.uuid}')" title="Ativar Gizmo">
+                        <i class="fas fa-arrows-alt"></i>
+                    </button>
+                `;
+                li.onclick = () => selectModel(model.uuid);
+                list.appendChild(li);
+            });
+        }
+        
+        function selectModel(uuid) {
+            const model = loadedModels.find(m => m.uuid === uuid);
+            if (model) {
+                transformControls.detach();
+                transformControls.attach(model);
+                
+                controls.target.copy(model.position);
+                controls.update();
+            }
+        }
+        
+        function attachTransformControls(uuid) {
+            event.stopPropagation(); 
+            selectModel(uuid);
+        }
+
+        // --- Funções de Manipulação de Modal ---
+        
+        function showCreatorModal() {
+            const modal = document.getElementById('creator-modal');
+            modal.style.display = 'flex';
+            populatePartsList();
+        }
+
+        function hideCreatorModal() {
+            document.getElementById('creator-modal').style.display = 'none';
+        }
+        
+        function hideResultsModal() {
+            document.getElementById('results-modal').style.display = 'none';
+        }
+        
+        function populatePartsList() {
+            const partsUl = document.getElementById('parts-ul');
+            partsUl.innerHTML = '';
+            
+            if (loadedModels.length === 0) {
+                partsUl.innerHTML = '<li class="text-gray-500 text-center py-4">Nenhum modelo carregado.</li>';
+                return;
+            }
+
+            loadedModels.forEach((model, modelIndex) => {
+                const modelHeader = document.createElement('li');
+                modelHeader.className = 'font-bold text-indigo-700 mt-3 border-b border-indigo-200 pb-1';
+                modelHeader.innerText = model.name;
+                partsUl.appendChild(modelHeader);
+
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        const li = document.createElement('li');
+                        li.className = 'flex justify-between items-center py-2 border-b border-gray-200';
+                        
+                        const partName = child.name.replace(`Peça_${model.name}_`, '');
+                        const displayArea = (child.userData.area || 0); 
+                        const displayVolume = (child.userData.volume || 0); 
+                        const displayUnit = currentUnit === 'm' ? 'm' : currentUnit; 
+
+                        li.innerHTML = `
+                            <div class="flex-1 min-w-0">
+                                <span class="block font-semibold text-gray-700 truncate" title="${child.name}">${partName}</span>
+                                <span class="block text-xs text-gray-500">Área: ${displayArea.toFixed(3)} ${displayUnit}² | Volume: ${displayVolume.toFixed(3)} ${displayUnit}³</span>
+                            </div>
+                            
+                            <select 
+                                onchange="updatePartMaterialType('${child.uuid}', this.value)"
+                                class="ml-4 p-1 border rounded-md text-sm bg-white"
+                                id="select-${child.uuid}"
+                            >
+                                </select>
+                        `;
+                        partsUl.appendChild(li);
+                        
+                        const selectElement = document.getElementById(`select-${child.uuid}`);
+                        Object.values(MATERIAL_TYPES).forEach(type => {
+                            const option = document.createElement('option');
+                            option.value = type;
+                            option.innerText = type;
+                            selectElement.appendChild(option);
+                        });
+                        selectElement.value = child.userData.materialType || DEFAULT_MATERIAL_TYPE;
+                    }
+                });
+            });
+        }
+        
+        function updatePartMaterialType(uuid, newType) {
+            for (const model of loadedModels) {
+                let found = false;
+                model.traverse(child => {
+                    if (child.isMesh && child.uuid === uuid) {
+                        child.userData.materialType = newType;
+                        if (window.performMeshScanAndSetData) {
+                            window.performMeshScanAndSetData(model, currentUnit, MATERIAL_TYPES, DEFAULT_MATERIAL_TYPE); 
+                            console.log(`Material de ${child.name} atualizado para ${newType}`);
+                        }
+                        found = true;
+                    }
+                });
+                if (found) break;
+            }
+        }
+        
+        // --- Inicia a Aplicação ---
+        window.onload = function () {
+            init();
+        };
+        
+        // --- Inicialização de UI na Carga ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const unitBtn = document.getElementById('btn-unit-toggle');
+            if(unitBtn) {
+                 unitBtn.innerText = `Unidade: ${currentUnit.toUpperCase()}`;
+            }
+            
+            const brightnessSlider = document.getElementById('brightness-slider');
+            if (brightnessSlider) {
+                 document.getElementById('brightness-value').innerText = parseFloat(brightnessSlider.value).toFixed(2);
+            }
+            
+            const shadowSlider = document.getElementById('shadow-quality-slider');
+            if (shadowSlider) {
+                updateShadowQuality(shadowSlider.value); 
+            }
+            
+            const reflectionSlider = document.getElementById('reflection-slider');
+            if (reflectionSlider) {
+                 updateMaterialReflection(reflectionSlider.value); 
+            }
+            
+            const creatorModal = document.getElementById('creator-modal');
+            if(creatorModal) {
+                 creatorModal.style.display = 'none';
+            }
+        });
+    </script>
+        // ... O seu código existente aqui (init(), variáveis, etc.)
+
+        // --- NOVO: Registo do Service Worker para funcionalidade PWA ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Registra o Service Worker que está na raiz da aplicação.
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => {
+                        console.log('Service Worker Registrado com sucesso:', reg.scope);
+                    })
+                    .catch(err => {
+                        console.error('Falha no registo do Service Worker:', err);
+                    });
+            });
+        }
+        // -----------------------------------------------------------------
+        
+        // --- Inicia a Aplicação ---
+        window.onload = function () {
+            init();
+        };
+        
+        // ... O seu código de inicialização de UI existente aqui
+    </script>
+    <script src="xray.js"></script>
+    <script src="scanner.js"></script>
+    <script src="criador.js"></script>
+
+</body>
+</html>

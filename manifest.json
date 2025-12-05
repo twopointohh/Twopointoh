@@ -1,0 +1,27 @@
+{
+    "name": "twopointoh",
+    "short_name": "twopointoh",
+    "description": "Edite modelos 3D e calcule materiais de forma offline e rápida.",
+    "start_url": "/twopointoh.html",
+    "display": "standalone",
+    "background_color": "#03001C",
+    "theme_color": "#00ffff",
+    "icons": [
+        {
+            "src": "twopointoh.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "twopointoh.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "twopointoh.png",
+            "sizes": "180x180",
+            "type": "image/png",
+            "purpose": "apple-touch-icon"
+        }
+    ]
+}
